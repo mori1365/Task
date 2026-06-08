@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Glow or subtle Shadow -->
+    <path
+        android:fillColor="#15FFFFFF"
+        android:pathData="M 54 18 C 73.88 18 90 34.12 90 54 C 90 73.88 73.88 90 54 90 C 34.12 90 18 73.88 18 54 C 18 34.12 34.12 18 54 18 Z" />
+
+    <!-- Solid Core Circle -->
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M 54 22 C 71.67 22 86 36.33 86 54 C 86 71.67 71.67 86 54 86 C 36.33 86 22 71.67 22 54 C 22 36.33 36.33 22 54 22 Z" />
+
+    <!-- White Checkmark -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 38 54 L 49 65 L 70 41" />
+        
+    <!-- Tiny decorative dot to avoid plain look -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M 68 30 C 69.65 30 71 31.35 71 33 C 71 34.65 69.65 36 68 36 C 66.35 36 65 34.65 65 33 C 65 31.35 66.35 30 68 30 Z" />
+</vector>

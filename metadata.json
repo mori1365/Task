@@ -1,0 +1,6 @@
+{
+  "name": "Task Flow",
+  "description": "یک برنامه زیبا و مدرن فرانت‌اند و دیتابیس برای مدیریت، اولویت‌بندی و انجام تسک‌های روزانه.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
