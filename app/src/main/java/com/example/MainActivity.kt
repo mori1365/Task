@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,6 +46,9 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.widget.Toast
+import com.example.data.TaskShareHelper
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Task
 import com.example.data.TaskDatabase
@@ -118,6 +123,7 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var showCollabDialog by remember { mutableStateOf(false) }
 
     // Dynamic layout direction mapping
     val layoutDirection = if (isFarsi) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -179,21 +185,44 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                             )
                         }
 
-                        // Persian / English Lang Toggle Badge
-                        IconButton(
-                            onClick = { isFarsi = !isFarsi },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .size(44.dp)
-                                .testTag("lang_toggle_button")
+                        // Persian / English Lang & Collaboration Toggle Custom Badges
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Language,
-                                contentDescription = "تغییر زبان - Translate App",
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            // Colleague Connection & Task Export/Import Button
+                            IconButton(
+                                onClick = { showCollabDialog = true },
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .size(44.dp)
+                                    .testTag("collab_dialog_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Groups,
+                                    contentDescription = if (isFarsi) "همکاری با همکاران" else "Colleague Connection",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            // Persian / English Lang Toggle Badge
+                            IconButton(
+                                onClick = { isFarsi = !isFarsi },
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .size(44.dp)
+                                    .testTag("lang_toggle_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Language,
+                                    contentDescription = "تغییر زبان - Translate App",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
 
@@ -496,6 +525,19 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                 onAdd = { title, desc, cat, priority, dueDate ->
                     viewModel.addTask(title, desc, cat, priority, dueDate)
                     showAddDialog = false
+                }
+            )
+        }
+
+        // CUSTOM TEAM COLLABORATION DIALOG
+        if (showCollabDialog) {
+            TaskCollabDialog(
+                isFarsi = isFarsi,
+                tasks = tasks,
+                onDismiss = { showCollabDialog = false },
+                onImport = { tasksToImport ->
+                    viewModel.importSharedTasks(tasksToImport)
+                    showCollabDialog = false
                 }
             )
         }
@@ -1063,6 +1105,342 @@ fun TaskAddDialog(
                     ) {
                         Text(if (isFarsi) "افزودن کار" else "Create")
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskCollabDialog(
+    isFarsi: Boolean,
+    tasks: List<Task>,
+    onDismiss: () -> Unit,
+    onImport: (List<Task>) -> Unit
+) {
+    var selectedCat by remember { mutableStateOf<String?>(null) } // null means All
+    var codeToImport by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    val tasksToShare = if (selectedCat == null) {
+        tasks
+    } else {
+        tasks.filter { it.category == selectedCat }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                // Header Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Groups,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = if (isFarsi) "همکاری و اشتراک تیمی" else "Team Collaboration",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF21005D)
+                        )
+                        Text(
+                            text = if (isFarsi) "کارهای خود را به همکارانتان منتقل و همگام کنید" else "Sync actions directly with colleagues",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Thin Divider line
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)).padding(vertical = 4.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // SECTION 1: SHARE PROJECTS / CATEGORIES
+                Text(
+                    text = if (isFarsi) "۱. ارسال اطلاعات تیم / کار گروهی" else "1. Export Team Workspace",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isFarsi) "دسته‌بندی تیمی مورد نظر خود برای اشتراک رو انتخاب کنید:" else "Choose which team category/workspace to share with colleagues:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Workspace horizontal chip row
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        val isSelected = selectedCat == null
+                        val containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                        val textColor = if (isSelected) Color.White else MaterialTheme.colorScheme.primary
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(containerColor)
+                                .clickable { selectedCat = null }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = if (isFarsi) "همه تیم‌ها" else "All Teams",
+                                color = textColor,
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+
+                    items(CategoriesList) { cat ->
+                        val isSelected = selectedCat == cat.id
+                        val containerColor = if (isSelected) cat.color else cat.color.copy(alpha = 0.08f)
+                        val textColor = if (isSelected) Color.White else cat.color
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(containerColor)
+                                .clickable { selectedCat = cat.id }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = cat.icon,
+                                    contentDescription = null,
+                                    tint = textColor,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isFarsi) cat.nameFa else cat.nameEn,
+                                    color = textColor,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isFarsi) {
+                                    "تعداد کارهای آماده انتقال: ${tasksToShare.size} مورد"
+                                } else {
+                                    "Tasks ready to transfer: ${tasksToShare.size}"
+                                },
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        if (tasksToShare.isEmpty()) {
+                            Toast.makeText(
+                                context,
+                                if (isFarsi) "تسکی برای اشتراک‌گذاری در این بخش نیست!" else "No tasks in this segment to share!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@Button
+                        }
+
+                        val encodedCode = TaskShareHelper.exportTasksToCode(tasksToShare)
+                        if (encodedCode.isEmpty()) {
+                            Toast.makeText(context, "Error generating code", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        val titleText = if (isFarsi) "کارهای هم‌تیمی" else "Colleague items sync"
+                        val pCategoryName = if (selectedCat == null) {
+                            if (isFarsi) "همه تیم‌ها" else "All Workspaces"
+                        } else {
+                            CategoriesList.find { it.id == selectedCat }?.let { if (isFarsi) it.nameFa else it.nameEn } ?: selectedCat
+                        }
+
+                        val sb = StringBuilder()
+                        sb.append("📋 $titleText\n")
+                        sb.append("📌 " + (if (isFarsi) "تیم: " else "Workspace: ") + "$pCategoryName\n")
+                        sb.append(if (isFarsi) "لیست تسک‌های ارسالی:\n" else "Shared list items:\n")
+                        
+                        tasksToShare.take(5).forEach { task ->
+                            val status = if (task.isCompleted) "✓" else "☐"
+                            val priorityEmoji = when (task.priority.lowercase()) {
+                                "high" -> "🔴"
+                                "medium" -> "🟡"
+                                else -> "🟢"
+                            }
+                            sb.append("$status $priorityEmoji ${task.title}\n")
+                        }
+                        if (tasksToShare.size > 5) {
+                            sb.append("... (" + (if (isFarsi) "و ${tasksToShare.size - 5} تسک دیگر" else "and ${tasksToShare.size - 5} more") + ")\n")
+                        }
+
+                        sb.append("\n" + (if (isFarsi) "جهت وارد کردن این تسک‌ها به برنامه خود، پیام را کپی کرده و در بخش همکاری برنامه همکارتان بگذارید:" else "Copy this message text, then clear and paste it in the import collaboration section of your app:") + "\n")
+                        sb.append("=== START CODE ===\n")
+                        sb.append(encodedCode)
+                        sb.append("\n=== END CODE ===")
+
+                        val sendText = sb.toString()
+                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(encodedCode))
+
+                        // Sharing context intent calling
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, titleText)
+                            putExtra(Intent.EXTRA_TEXT, sendText)
+                        }
+                        context.startActivity(Intent.createChooser(intent, if (isFarsi) "ارسال به همکاران" else "Send via"))
+                        
+                        Toast.makeText(
+                            context,
+                            if (isFarsi) "کد تیم کپی شد و آماده ارسال به همکاران است!" else "Team transfer code is copied!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (isFarsi) "تولید و ارسال اطلاعات تیم به همکاران" else "Generate & Share Team Workspace")
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)).padding(vertical = 4.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // SECTION 2: PASTE AND MERGE
+                Text(
+                    text = if (isFarsi) "۲. اتصال به تیم همکار (دریافت تسک‌ها)" else "2. Connect to Colleague (Import Tasks)",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isFarsi) "پیامی که همکارتان براتون فرستاده را چسبانده و دکمه زیر را فشار دهید:" else "Paste the entire share message or code below:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = codeToImport,
+                    onValueChange = { codeToImport = it },
+                    placeholder = { Text(if (isFarsi) "کد یا پیام همکار را اینجا چسبانده و دکمه را بزنید..." else "Paste team code or message link...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 5,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        if (codeToImport.isBlank()) {
+                            Toast.makeText(context, if (isFarsi) "کد نمی‌تواند خالی باشد!" else "Code cannot be empty!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        var cleanCode = codeToImport.trim()
+                        if (cleanCode.contains("=== START CODE ===")) {
+                            try {
+                                val pre = cleanCode.split("=== START CODE ===")
+                                if (pre.size > 1) {
+                                    val post = pre[1].split("=== END CODE ===")
+                                    if (post.isNotEmpty()) {
+                                        cleanCode = post[0].trim()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                // Default back
+                            }
+                        }
+
+                        val importedTasks = TaskShareHelper.importTasksFromCode(cleanCode)
+                        if (importedTasks.isNullOrEmpty()) {
+                            Toast.makeText(
+                                context,
+                                if (isFarsi) "قالب کد وارد شده صحیح نیست!" else "Invalid code structure!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            onImport(importedTasks)
+                            Toast.makeText(
+                                context,
+                                if (isFarsi) "تعداد ${importedTasks.size} تسک با همکاران با موفقیت هماهنگ و ادغام شد! 🎉" else "Merged ${importedTasks.size} tasks with your team successfully! 🎉",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.White)
+                ) {
+                    Icon(imageVector = Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (isFarsi) "وارد کردن و ادغام تسک همکاران" else "Import & Merge Colleague Tasks")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(if (isFarsi) "خروج و بازگشت" else "Close Sync Window")
                 }
             }
         }

@@ -119,6 +119,21 @@ class TaskViewModel(private val repository: TaskRepository) : ViewModel() {
         }
     }
 
+    fun importSharedTasks(tasksToImport: List<Task>) {
+        viewModelScope.launch {
+            tasksToImport.forEach { task ->
+                val exists = tasks.value.any {
+                    it.title.equals(task.title, ignoreCase = true) &&
+                    it.category.equals(task.category, ignoreCase = true)
+                }
+                if (!exists) {
+                    val taskToInsert = task.copy(id = 0) // Reset ID of task to autogenerate on local SQLite
+                    repository.insertTask(taskToInsert)
+                }
+            }
+        }
+    }
+
     class Factory(private val repository: TaskRepository) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(TaskViewModel::class.java)) {
