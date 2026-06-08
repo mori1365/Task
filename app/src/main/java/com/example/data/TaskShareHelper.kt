@@ -27,6 +27,18 @@ object TaskShareHelper {
     }
 
     /**
+     * Converts a list of Tasks into a serialized raw JSON string.
+     */
+    fun serializeToJson(tasks: List<Task>): String {
+        return try {
+            jsonAdapter.toJson(tasks)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            ""
+        }
+    }
+
+    /**
      * Parses an encoded transfer string or raw JSON string back into a list of Tasks.
      */
     fun importTasksFromCode(code: String): List<Task>? {

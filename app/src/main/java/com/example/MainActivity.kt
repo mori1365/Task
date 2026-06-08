@@ -65,11 +65,22 @@ class MainActivity : ComponentActivity() {
         val database = TaskDatabase.getDatabase(this)
         val repository = TaskRepository(database.taskDao())
 
+        val sharedPrefs = getSharedPreferences("TaskFlowPrefs", MODE_PRIVATE)
+        val initialTeamId = sharedPrefs.getString("connected_team_id", null)
+
         setContent {
             MyApplicationTheme {
                 val viewModel: TaskViewModel by viewModels {
                     TaskViewModel.Factory(repository)
                 }
+
+                LaunchedEffect(Unit) {
+                    if (initialTeamId != null) {
+                        viewModel.setConnectedTeamId(initialTeamId)
+                        viewModel.syncOnline { _, _ -> }
+                    }
+                }
+
                 TaskAppScreen(viewModel)
             }
         }
@@ -111,6 +122,12 @@ fun getRelativeTime(timestamp: Long, isFarsi: Boolean): String {
     return if (isFarsi) "$days روز پیش" else "${days}d ago"
 }
 
+fun formatDueDate(timestamp: Long, isFarsi: Boolean): String {
+    val sdf = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US)
+    val dateStr = sdf.format(java.util.Date(timestamp))
+    return if (isFarsi) "تا $dateStr" else "Due: $dateStr"
+}
+
 @Composable
 fun TaskAppScreen(viewModel: TaskViewModel) {
     // Dynamic Persian/English bilingual toggling
@@ -121,6 +138,7 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
     val filterStatus by viewModel.filterStatus.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val connectedTeamId by viewModel.connectedTeamId.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showCollabDialog by remember { mutableStateOf(false) }
@@ -173,11 +191,38 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text(
-                                text = if (isFarsi) "تسک‌های من" else "My Tasks",
-                                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFF21005D) // Vibrant Palette Royal Purple Heading
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (isFarsi) "تسک‌های من" else "My Tasks",
+                                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF21005D) // Vibrant Palette Royal Purple Heading
+                                )
+                                if (connectedTeamId != null) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFFE8F5E9))
+                                            .border(1.dp, Color(0xFF81C784), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF4CAF50))
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = connectedTeamId?.take(6) ?: "",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = Color(0xFF2E7D32)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             Text(
                                 text = if (isFarsi) "امروز، ۱۸ خرداد" else "Today, June 8",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
@@ -371,175 +416,148 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                         Tab(
                             selected = filterStatus == TaskViewModel.FilterStatus.ALL,
                             onClick = { viewModel.setFilterStatus(TaskViewModel.FilterStatus.ALL) },
-                            text = { Text(if (isFarsi) "همه (${tasks.size})" else "All (${tasks.size})", fontWeight = FontWeight.Bold) }
+                            text = { Text(if (isFarsi) "???" else "All") }
                         )
                         Tab(
                             selected = filterStatus == TaskViewModel.FilterStatus.PENDING,
                             onClick = { viewModel.setFilterStatus(TaskViewModel.FilterStatus.PENDING) },
-                            text = { Text(if (isFarsi) "در دست انجام (${tasks.count { !it.isCompleted }})" else "Pending (${tasks.count { !it.isCompleted }})", fontWeight = FontWeight.Bold) }
+                            text = { Text(if (isFarsi) "?? ?????" else "Pending") }
                         )
                         Tab(
                             selected = filterStatus == TaskViewModel.FilterStatus.COMPLETED,
                             onClick = { viewModel.setFilterStatus(TaskViewModel.FilterStatus.COMPLETED) },
-                            text = { Text(if (isFarsi) "انجام شده (${tasks.count { it.isCompleted }})" else "Completed (${tasks.count { it.isCompleted }})", fontWeight = FontWeight.Bold) }
+                            text = { Text(if (isFarsi) "????? ???" else "Completed") }
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // CATEGORY SLIDABLE ROW CHIPS
+                    // CATEGORY FILTER HORIZONTAL ROW
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         // "All" Category Chip
                         item {
-                            FilterChip(
-                                selected = selectedCategory == null,
-                                onClick = { viewModel.setSelectedCategory(null) },
-                                label = { Text(text = if (isFarsi) "همه دسته‌ها" else "All Categories", fontWeight = FontWeight.Medium) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.GridView,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                shape = RoundedCornerShape(12.dp)
-                            )
+                            val isSelected = selectedCategory == null
+                            val containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(containerColor)
+                                    .clickable { viewModel.setSelectedCategory(null) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = if (isFarsi) "???" else "All",
+                                    color = textColor,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
                         }
 
-                        // List of Categories
                         items(CategoriesList) { cat ->
                             val isSelected = selectedCategory == cat.id
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.setSelectedCategory(cat.id) },
-                                label = { Text(if (isFarsi) cat.nameFa else cat.nameEn, fontWeight = FontWeight.Medium) },
-                                leadingIcon = {
+                            val containerColor = if (isSelected) cat.color else cat.color.copy(alpha = 0.08f)
+                            val textColor = if (isSelected) Color.White else cat.color
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(containerColor)
+                                    .clickable { viewModel.setSelectedCategory(cat.id) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = cat.icon,
                                         contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else cat.color,
+                                        tint = textColor,
                                         modifier = Modifier.size(16.dp)
                                     )
-                                },
-                                shape = RoundedCornerShape(12.dp)
-                            )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isFarsi) cat.nameFa else cat.nameEn,
+                                        color = textColor,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // TASK LIST CONTAINER
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (filteredTasks.isEmpty()) {
-                            // BEAUTIFUL EMPTY STATE PRESENTATION
+                    // TASKS LIST LAZYCOLUMN
+                    if (filteredTasks.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(24.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .size(120.dp)
-                                        .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f), CircleShape)
+                                        .size(80.dp)
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), CircleShape)
                                 ) {
                                     Icon(
-                                        imageVector = if (searchQuery.isNotEmpty() || selectedCategory != null) Icons.Default.FilterListOff else Icons.Default.AssignmentTurnedIn,
+                                        imageVector = Icons.Default.EventNote,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(64.dp)
+                                        modifier = Modifier.size(40.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(18.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = if (searchQuery.isNotEmpty()) {
-                                        if (isFarsi) "موردی یافت نشد!" else "No search matches"
-                                    } else if (selectedCategory != null) {
-                                        if (isFarsi) "کار جدیدی در این دسته‌بندی نیست" else "No tasks in this category"
-                                    } else {
-                                        if (isFarsi) "لیست کارها خالی است" else "List is currently empty"
-                                    },
+                                    text = if (isFarsi) "??? ???? ???? ???" else "No Tasks Found",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onBackground
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = if (searchQuery.isNotEmpty()) {
-                                        if (isFarsi) "عبارت دیگری را امتحان کنید یا فیلترها را بردارید" else "Try looking for another term or reset selections!"
-                                    } else if (isFarsi) {
-                                        "از دکمه پایین صفحه (+) برای اضافه کردن اولین کار استفاده کنید"
-                                    } else {
-                                        "Tap the floating add button (+) below to begin listing your goals!"
-                                    },
+                                    text = if (isFarsi) "??? ????? ????? ???? ?? ??????? ?? ????? ????." else "Add a task or adjust filters to get started.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 24.dp)
                                 )
-                                if (tasks.isNotEmpty() && (searchQuery.isNotEmpty() || selectedCategory != null || filterStatus != TaskViewModel.FilterStatus.ALL)) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    TextButton(onClick = {
-                                        viewModel.setSearchQuery("")
-                                        viewModel.setSelectedCategory(null)
-                                        viewModel.setFilterStatus(TaskViewModel.FilterStatus.ALL)
-                                    }) {
-                                        Text(if (isFarsi) "پاک کردن همه فیلترها" else "Reset All Filters")
-                                    }
-                                }
                             }
-                        } else {
-                            // RENDER TASKS CARDS LIST
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .testTag("task_list"),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                contentPadding = PaddingValues(bottom = 80.dp)
-                            ) {
-                                items(filteredTasks, key = { it.id }) { task ->
-                                    TaskItemCard(
-                                        task = task,
-                                        isFarsi = isFarsi,
-                                        onToggle = { viewModel.toggleTaskCompletion(task) },
-                                        onDelete = { viewModel.deleteTask(task) }
-                                    )
-                                }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(bottom = 80.dp)
+                        ) {
+                            items(
+                                items = filteredTasks,
+                                key = { it.id }
+                            ) { task ->
+                                TaskItemCard(
+                                    task = task,
+                                    isFarsi = isFarsi,
+                                    onToggle = { viewModel.toggleTaskCompletion(task) },
+                                    onDelete = { viewModel.deleteTask(task) }
+                                )
                             }
                         }
                     }
                 }
             }
-        }
-
-        // CUSTOM TASK ADD CREATOR DIALOG
-        if (showAddDialog) {
-            TaskAddDialog(
-                isFarsi = isFarsi,
-                onDismiss = { showAddDialog = false },
-                onAdd = { title, desc, cat, priority, dueDate ->
-                    viewModel.addTask(title, desc, cat, priority, dueDate)
-                    showAddDialog = false
-                }
-            )
-        }
-
-        // CUSTOM TEAM COLLABORATION DIALOG
-        if (showCollabDialog) {
-            TaskCollabDialog(
-                isFarsi = isFarsi,
-                tasks = tasks,
-                onDismiss = { showCollabDialog = false },
-                onImport = { tasksToImport ->
-                    viewModel.importSharedTasks(tasksToImport)
-                    showCollabDialog = false
-                }
-            )
         }
     }
 }
@@ -551,26 +569,32 @@ fun TaskItemCard(
     onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
-    // Dynamic border color depending on priority
-    val priorityColor = when (task.priority.lowercase()) {
-        "high" -> Color(0xFFEF4444)
-        "medium" -> Color(0xFFF59E0B)
-        else -> Color(0xFF10B981)
+    val cardBg = if (task.isCompleted) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    } else {
+        MaterialTheme.colorScheme.surface
     }
-
-    // Category info resolution
-    val catInfo = CategoriesList.firstOrNull { it.id == task.category } ?: CategoriesList[0]
-
+    
+    val titleColor = if (task.isCompleted) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    
+    val descColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("task_item_${task.id}"),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (task.isCompleted) {
-                Color(0xFFE8DEF8).copy(alpha = 0.7f)
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = if (task.isCompleted) {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
             } else {
-                MaterialTheme.colorScheme.surfaceVariant
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
             }
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (task.isCompleted) 0.dp else 1.dp)
@@ -578,534 +602,145 @@ fun TaskItemCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .drawBehindBorderEdge(priorityColor, strokeWidth = 5.dp, isRtl = isFarsi)
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // STEP 1: CHECKBOX TICK BUTTON (Accurate touch target 48x48)
             Box(
-                contentAlignment = Alignment.Center,
                 modifier = Modifier
+                    .size(26.dp)
                     .clip(CircleShape)
-                    .clickable { onToggle() }
-                    .size(48.dp) // Accessibility Target Size
-                    .testTag("task_checkbox_${task.id}")
-            ) {
-                Icon(
-                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = if (task.isCompleted) "انجام شده" else "انجام نشده",
-                    tint = MaterialTheme.colorScheme.primary, // #6750A4 central theme brand color
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-
-            // STEP 2: BODY TEXT DETAILS
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp)
-            ) {
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
-                    ),
-                    color = if (task.isCompleted) {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (task.description.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = task.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (task.isCompleted) {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    .background(
+                        if (task.isCompleted) {
+                            MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                            Color.Transparent
+                        }
+                    )
+                    .border(
+                        width = 2.dp,
+                        color = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        shape = CircleShape
+                    )
+                    .clickable { onToggle() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (task.isCompleted) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Completed",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // CHIPS LABEL SUB-ROW
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Category Badge Custom Tag
-                    Row(
-                        modifier = Modifier
-                            .background(catInfo.color.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = catInfo.icon,
-                            contentDescription = null,
-                            tint = catInfo.color,
-                            modifier = Modifier.size(10.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = if (isFarsi) catInfo.nameFa else catInfo.nameEn,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = catInfo.color,
-                            fontWeight = FontWeight.Bold
-                        )
+                    Text(
+                        text = task.title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            textDecoration = if (task.isCompleted) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                        ),
+                        color = titleColor,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    
+                    val priorityColor = when (task.priority.lowercase()) {
+                        "high" -> Color(0xFFEF4444)
+                        "medium" -> Color(0xFFF59E0B)
+                        else -> Color(0xFF10B981)
                     }
-
-                    // Priority Pill Badge
-                    val priorityLabel = when (task.priority.lowercase()) {
-                        "high" -> if (isFarsi) "مهم" else "High"
-                        "medium" -> if (isFarsi) "متوسط" else "Medium"
-                        else -> if (isFarsi) "کم" else "Low"
+                    val priorityName = when (task.priority.lowercase()) {
+                        "high" -> if (isFarsi) "????" else "Urgent"
+                        "medium" -> if (isFarsi) "?????" else "Medium"
+                        else -> if (isFarsi) "??" else "Low"
                     }
                     Box(
                         modifier = Modifier
-                            .background(priorityColor.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(priorityColor.copy(alpha = 0.12f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = priorityLabel,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = priorityColor,
-                            fontWeight = FontWeight.Bold
+                            text = priorityName,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = priorityColor
                         )
                     }
-
-                    // Due Date Badge
-                    if (task.dueDate != null) {
-                        val isOverdue = task.dueDate < System.currentTimeMillis() && !task.isCompleted
-                        val badgeBg = if (isOverdue) Color(0xFFFEE2E2) else Color(0xFFE0F2FE)
-                        val badgeColor = if (isOverdue) Color(0xFFEF4444) else Color(0xFF0284C7)
-                        Row(
-                            modifier = Modifier
-                                .background(badgeBg, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                }
+                
+                if (task.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = task.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = descColor,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+                
+                if (task.dueDate != null || task.createdAt > 0) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (task.dueDate != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Event,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = formatDueDate(task.dueDate!!, isFarsi),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Event,
+                                imageVector = Icons.Default.Schedule,
                                 contentDescription = null,
-                                tint = badgeColor,
-                                modifier = Modifier.size(10.dp)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = (if (isFarsi) "سررسید: " else "Due: ") + formatDueDate(task.dueDate, isFarsi),
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = badgeColor,
-                                fontWeight = FontWeight.Bold
+                                text = getRelativeTime(task.createdAt, isFarsi),
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Relative Elapsed Timestamp Representation
-                    Text(
-                        text = getRelativeTime(task.createdAt, isFarsi),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
                 }
             }
-
-            // STEP 3: DELETE RECYCLE TRASH ACTION (Target size 48x48)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .clickable { onDelete() }
-                    .size(48.dp)
-                    .testTag("delete_task_${task.id}")
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(36.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = if (isFarsi) "حذف تسک" else "Delete Task",
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                    modifier = Modifier.size(24.dp)
+                    contentDescription = if (isFarsi) "??? ???" else "Delete Task",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp)
                 )
-            }
-        }
-    }
-}
-
-// Special dynamic custom modifier to draw the left (or right if RTL) card status accent border
-fun Modifier.drawBehindBorderEdge(color: Color, strokeWidth: androidx.compose.ui.unit.Dp, isRtl: Boolean): Modifier {
-    return this.drawBehind {
-        val width = strokeWidth.toPx()
-        if (isRtl) {
-            // Draw on right edge for RTL languages
-            drawRect(
-                color = color,
-                topLeft = androidx.compose.ui.geometry.Offset(size.width - width, 0f),
-                size = androidx.compose.ui.geometry.Size(width, size.height)
-            )
-        } else {
-            // Draw on left edge for LTR languages
-            drawRect(
-                color = color,
-                topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
-                size = androidx.compose.ui.geometry.Size(width, size.height)
-            )
-        }
-    }
-}
-
-fun formatDueDate(timestamp: Long, isFarsi: Boolean): String {
-    val date = java.util.Date(timestamp)
-    return if (isFarsi) {
-        getPersianDate(date)
-    } else {
-        val sdf = SimpleDateFormat("MMM d, yyyy", Locale.US)
-        sdf.format(date)
-    }
-}
-
-fun getPersianDate(date: java.util.Date): String {
-    val calendar = Calendar.getInstance()
-    calendar.time = date
-    val gYear = calendar.get(Calendar.YEAR)
-    val gMonth = calendar.get(Calendar.MONTH) + 1
-    val gDay = calendar.get(Calendar.DAY_OF_MONTH)
-    
-    val gDaysInMonth = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
-    var gy = gYear - 1600
-    var gm = gMonth - 1
-    val gd = gDay - 1
-    
-    var gDayNo = 365 * gy + (gy + 3) / 4 - (gy + 99) / 100 + (gy + 399) / 400
-    gDayNo += gDaysInMonth[gm]
-    if (gm > 1 && ((gYear % 4 == 0 && gYear % 100 != 0) || (gYear % 400 == 0))) {
-        gDayNo++
-    }
-    gDayNo += gd
-
-    var jDayNo = gDayNo - 79
-    val jNpm = jDayNo / 12053
-    jDayNo %= 12053
-    
-    var jy = 979 + 33 * jNpm + 4 * (jDayNo / 1461)
-    jDayNo %= 1461
-    
-    if (jDayNo >= 366) {
-        jy += (jDayNo - 1) / 365
-        jDayNo = (jDayNo - 1) % 365
-    }
-    
-    var jm = 0
-    var i = 0
-    val jDaysInMonth = intArrayOf(31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
-    while (i < 12 && jDayNo >= jDaysInMonth[i]) {
-        jDayNo -= jDaysInMonth[i]
-        i++
-    }
-    jm = i + 1
-    val jd = jDayNo + 1
-    
-    val pMonthName = when (jm) {
-        1 -> "فروردین"
-        2 -> "اردیبهشت"
-        3 -> "خرداد"
-        4 -> "تیر"
-        5 -> "مرداد"
-        6 -> "شهریور"
-        7 -> "مهر"
-        8 -> "آبان"
-        9 -> "آذر"
-        10 -> "دی"
-        11 -> "بهمن"
-        else -> "اسفند"
-    }
-    
-    return "$jd $pMonthName $jy"
-}
-
-
-@Composable
-fun TaskAddDialog(
-    isFarsi: Boolean,
-    onDismiss: () -> Unit,
-    onAdd: (title: String, description: String, category: String, priority: String, dueDate: Long?) -> Unit
-) {
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var selectedCat by remember { mutableStateOf("General") }
-    var selectedPriority by remember { mutableStateOf("Medium") }
-    var selectedDueDate by remember { mutableStateOf<Long?>(null) }
-
-    var showError by remember { mutableStateOf(false) }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .wrapContentHeight()
-                .padding(16.dp),
-            shape = RoundedCornerShape(24.dp),
-            tonalElevation = 6.dp,
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-            ) {
-                // Header Titles
-                Text(
-                    text = if (isFarsi) "افزودن کار جدید" else "Create New Task",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = if (isFarsi) TextAlign.Right else TextAlign.Left
-                )
-                Text(
-                    text = if (isFarsi) "مشخصات تسک خود را در زیر وارد کنید" else "Fill in the parameters below",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                    textAlign = if (isFarsi) TextAlign.Right else TextAlign.Left
-                )
-
-                // Task Title Field
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = {
-                        title = it
-                        if (it.isNotBlank()) showError = false
-                    },
-                    label = { Text(if (isFarsi) "عنوان کار" else "Task Title") },
-                    isError = showError,
-                    modifier = Modifier.fillMaxWidth().testTag("add_title_field"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                if (showError) {
-                    Text(
-                        text = if (isFarsi) "عنوان کار نمی‌تواند خالی باشد!" else "Title cannot be empty!",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(start = 4.dp, top = 2.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Task Description Field
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text(if (isFarsi) "توضیحات (اختیاری)" else "Description (Optional)") },
-                    modifier = Modifier.fillMaxWidth().testTag("add_desc_field"),
-                    minLines = 2,
-                    maxLines = 3,
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Category Grid Selection
-                Text(
-                    text = if (isFarsi) "دسته‌بندی:" else "Select Category:",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(CategoriesList) { cat ->
-                        val isSelected = selectedCat == cat.id
-                        val containerColor = if (isSelected) cat.color else cat.color.copy(alpha = 0.08f)
-                        val textColor = if (isSelected) Color.White else cat.color
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(containerColor)
-                                .clickable { selectedCat = cat.id }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = cat.icon,
-                                    contentDescription = null,
-                                    tint = textColor,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isFarsi) cat.nameFa else cat.nameEn,
-                                    color = textColor,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Priority Row Selection
-                Text(
-                    text = if (isFarsi) "میزان اهمیت (اولویت):" else "Priority Label:",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("Low", "Medium", "High").forEach { pr ->
-                        val label = when (pr) {
-                            "Low" -> if (isFarsi) "کم" else "Low"
-                            "Medium" -> if (isFarsi) "متوسط" else "Medium"
-                            else -> if (isFarsi) "فوری" else "High"
-                        }
-                        val baseColor = when (pr) {
-                            "Low" -> Color(0xFF10B981)
-                            "Medium" -> Color(0xFFF59E0B)
-                            else -> Color(0xFFEF4444)
-                        }
-                        val isSelected = selectedPriority == pr
-                        val containerColor = if (isSelected) baseColor else baseColor.copy(alpha = 0.08f)
-                        val textColor = if (isSelected) Color.White else baseColor
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(containerColor)
-                                .clickable { selectedPriority = pr }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = textColor,
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Due Date Selection Section
-                Text(
-                    text = if (isFarsi) "تاریخ سررسید (اختیاری):" else "Due Date (Optional):",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val context = LocalContext.current
-                val calendar = Calendar.getInstance()
-                val datePickerDialog = DatePickerDialog(
-                    context,
-                    { _, year, month, dayOfMonth ->
-                        val selectedCal = Calendar.getInstance()
-                        selectedCal.set(Calendar.YEAR, year)
-                        selectedCal.set(Calendar.MONTH, month)
-                        selectedCal.set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                        selectedCal.set(Calendar.HOUR_OF_DAY, 23)
-                        selectedCal.set(Calendar.MINUTE, 59)
-                        selectedCal.set(Calendar.SECOND, 59)
-                        selectedDueDate = selectedCal.timeInMillis
-                    },
-                    calendar.get(Calendar.YEAR),
-                    calendar.get(Calendar.MONTH),
-                    calendar.get(Calendar.DAY_OF_MONTH)
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .clickable { datePickerDialog.show() }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Event,
-                        contentDescription = if (isFarsi) "انتخاب تاریخ" else "Select Date",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = if (selectedDueDate != null) {
-                            formatDueDate(selectedDueDate!!, isFarsi)
-                        } else {
-                            if (isFarsi) "انتخاب تاریخ سررسید..." else "Choose due date..."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (selectedDueDate != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (selectedDueDate != null) {
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable { selectedDueDate = null }
-                                .padding(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = if (isFarsi) "پاک کردن" else "Clear",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Bottom Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(if (isFarsi) "انصراف" else "Cancel")
-                    }
-
-                    Button(
-                        onClick = {
-                            if (title.isBlank()) {
-                                showError = true
-                            } else {
-                                onAdd(title, description, selectedCat, selectedPriority, selectedDueDate)
-                            }
-                        },
-                        modifier = Modifier.weight(1f).testTag("add_task_dialog_confirm"),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(if (isFarsi) "افزودن کار" else "Create")
-                    }
-                }
             }
         }
     }
@@ -1114,14 +749,19 @@ fun TaskAddDialog(
 @Composable
 fun TaskCollabDialog(
     isFarsi: Boolean,
-    tasks: List<Task>,
-    onDismiss: () -> Unit,
-    onImport: (List<Task>) -> Unit
+    viewModel: com.example.ui.TaskViewModel,
+    onDismiss: () -> Unit
 ) {
     var selectedCat by remember { mutableStateOf<String?>(null) } // null means All
     var codeToImport by remember { mutableStateOf("") }
+    var joinTeamInput by remember { mutableStateOf("") }
     val context = LocalContext.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val sharedPrefs = remember { context.getSharedPreferences("TaskFlowPrefs", android.content.Context.MODE_PRIVATE) }
+
+    val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val connectedTeamId by viewModel.connectedTeamId.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
 
     val tasksToShare = if (selectedCat == null) {
         tasks
@@ -1185,16 +825,342 @@ fun TaskCollabDialog(
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)).padding(vertical = 4.dp))
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // SECTION 1: SHARE PROJECTS / CATEGORIES
+                // ==========================================
+                // SECTION 1: AUTOMATIC ONLINE CLOUD SYNC
+                // ==========================================
                 Text(
-                    text = if (isFarsi) "۱. ارسال اطلاعات تیم / کار گروهی" else "1. Export Team Workspace",
+                    text = if (isFarsi) "☁️ اتصال و همگام‌سازی ابری (اتوماتیک)" else "☁️ Cloud Auto Sync (Instant)",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (isFarsi) "دسته‌بندی تیمی مورد نظر خود برای اشتراک رو انتخاب کنید:" else "Choose which team category/workspace to share with colleagues:",
+                    text = if (isFarsi) "بدون نیاز به کپی کردن کدهای طولانی، عضو یک گروه تیمی آنلاین شوید تا تسک‌ها خودکار در پس‌زمینه همسان و همگام شوند." 
+                           else "Join an instant cloud workspace. Local changes will automatically merge and sync in the background.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (connectedTeamId != null) {
+                    // Connected Status UI
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF81C784))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF4CAF50))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isFarsi) "وضعیت: متصل به سرور" else "Status: Fully Connected",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                }
+
+                                TextButton(
+                                    onClick = {
+                                        sharedPrefs.edit().remove("connected_team_id").apply()
+                                        viewModel.setConnectedTeamId(null)
+                                        Toast.makeText(
+                                            context,
+                                            if (isFarsi) "اتصال ابری قطع شد. برنامه در حالت محلی کار می‌کند." else "Cloud disconnected. Using offline mode.",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isFarsi) "خروج از گروه" else "Disconnect",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.7f))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = if (isFarsi) "کد همگام‌سازی ابری تیم شما:" else "Your Team Cloud Code:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF33691E)
+                                    )
+                                    Text(
+                                        text = connectedTeamId ?: "",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFF1B5E20)
+                                    )
+                                }
+
+                                Row {
+                                    IconButton(
+                                        onClick = {
+                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(connectedTeamId ?: ""))
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "کد کپی شد! برای اتصال همکاران بفرستید" else "Code copied! Send to teammates",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        },
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(Color.White)
+                                            .size(34.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy code",
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(
+                                        onClick = {
+                                            val shareText = if (isFarsi) {
+                                                "هم‌تیمی عزیز! برای عضویت در گروه همگام‌سازی ابری کارهای تیمی ما، این کد را در بخش همکاری اتوماتیک برنامه چسبانده و متصل شوید:\n\n$connectedTeamId"
+                                            } else {
+                                                "Teammate! Connect to my real-time cloud workspace with this code:\n\n$connectedTeamId"
+                                            }
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, shareText)
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share via"))
+                                        },
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(Color.White)
+                                            .size(34.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = "Share",
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Button(
+                                onClick = {
+                                    viewModel.syncOnline { success, error ->
+                                        if (success) {
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "لیست‌ها از فضای ابری بازخوانی و همسان‌سازی شد! 🎉" else "Lists fully cloud reconciled! 🎉",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "خطا در همگام‌سازی: $error" else "Sync failed: $error",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20)),
+                                enabled = !isSyncing
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (isFarsi) "بروزرسانی تیمی ابری دو طرفه" else "Sync Cloud Now (Two-Way)")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Disconnected / Offline state view
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isFarsi) "وضعیت: محلی / آفلاین" else "Status: Local Offline mode",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Button(
+                                onClick = {
+                                    viewModel.createTeamOnline { newTeamId, error ->
+                                        if (newTeamId != null) {
+                                            sharedPrefs.edit().putString("connected_team_id", newTeamId).apply()
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "کد ابری جدید تیمی شما با موفقیت ساخته شد! 🎉" else "New cloud workspace code created! 🎉",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "خطا در ایجاد گروه ابری: $error" else "Error creating cloud workspace: $error",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                enabled = !isSyncing
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(imageVector = Icons.Default.CloudQueue, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (isFarsi) "ایجاد و ساخت گروه آنلاین جدید" else "Create New Online Group")
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)))
+                                Text(
+                                    text = if (isFarsi) "اتصال به گروه همکار" else "JOIN COLLEAGUE'S GROUP",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                                Box(modifier = Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)))
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = joinTeamInput,
+                                onValueChange = { joinTeamInput = it },
+                                placeholder = { Text(if (isFarsi) "کد دریافتی از همکار را پیست کنید" else "Paste teammate's sync code...") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = {
+                                    if (joinTeamInput.isBlank()) {
+                                        Toast.makeText(context, if (isFarsi) "کد نمی‌تواند خالی باشد!" else "Code cannot be empty!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    val cleanInput = joinTeamInput.trim()
+                                    viewModel.setConnectedTeamId(cleanInput)
+                                    viewModel.syncOnline { success, error ->
+                                        if (success) {
+                                            sharedPrefs.edit().putString("connected_team_id", cleanInput).apply()
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "با موفقیت متصل و همگام شدید! 🎉" else "Connected and synchronized! 🎉",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            viewModel.setConnectedTeamId(null)
+                                            Toast.makeText(
+                                                context,
+                                                if (isFarsi) "خطا در اتصال: $error" else "Connection failed: $error",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                enabled = !isSyncing
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(imageVector = Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (isFarsi) "اتصال و ادغام تسک‌ها با همکار" else "Join & Merge Teammate Sync")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+                    Text(
+                        text = if (isFarsi) "روش‌های جایگزین / دستی (کد محور)" else "Manual Export / Import (Fallback)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    Box(modifier = Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // SECTION 2: MANUAL EXPORT / SHARE
+                Text(
+                    text = if (isFarsi) "۱. تولید و کپی دستی فایل کارهای تیم" else "1. Export Team Workspace",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isFarsi) "در صورت عدم دسترسی به سرور، می‌توانید کارها را به متون کدی تبدیل کرده و چت بفرستید:" else "Alternatively, convert specific workspaces to clean transfer codes to pass offline or via messengers:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
@@ -1359,9 +1325,9 @@ fun TaskCollabDialog(
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)).padding(vertical = 4.dp))
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // SECTION 2: PASTE AND MERGE
+                // SECTION 3: PASTE AND MERGE MANUALLY
                 Text(
-                    text = if (isFarsi) "۲. اتصال به تیم همکار (دریافت تسک‌ها)" else "2. Connect to Colleague (Import Tasks)",
+                    text = if (isFarsi) "۲. اتصال به تیم همکار بصورت متنی" else "2. Connect manually by text",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.fillMaxWidth()
@@ -1416,7 +1382,7 @@ fun TaskCollabDialog(
                                 Toast.LENGTH_LONG
                             ).show()
                         } else {
-                            onImport(importedTasks)
+                            viewModel.importSharedTasks(importedTasks)
                             Toast.makeText(
                                 context,
                                 if (isFarsi) "تعداد ${importedTasks.size} تسک با همکاران با موفقیت هماهنگ و ادغام شد! 🎉" else "Merged ${importedTasks.size} tasks with your team successfully! 🎉",
@@ -1430,7 +1396,7 @@ fun TaskCollabDialog(
                 ) {
                     Icon(imageVector = Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isFarsi) "وارد کردن و ادغام تسک همکاران" else "Import & Merge Colleague Tasks")
+                    Text(if (isFarsi) "وارد کردن فیزیکی تسک‌های تیمی" else "Import & Merge Colleague Tasks")
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

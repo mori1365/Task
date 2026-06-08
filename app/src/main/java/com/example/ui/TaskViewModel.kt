@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.Task
 import com.example.data.TaskRepository
+import com.example.data.TaskSyncService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,16 @@ import kotlinx.coroutines.launch
 class TaskViewModel(private val repository: TaskRepository) : ViewModel() {
 
     enum class FilterStatus { ALL, PENDING, COMPLETED }
+
+    private val _connectedTeamId = MutableStateFlow<String?>(null)
+    val connectedTeamId = _connectedTeamId.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing = _isSyncing.asStateFlow()
+
+    fun setConnectedTeamId(teamId: String?) {
+        _connectedTeamId.value = teamId
+    }
 
     private val _filterStatus = MutableStateFlow(FilterStatus.ALL)
     val filterStatus = _filterStatus.asStateFlow()
@@ -96,6 +107,9 @@ class TaskViewModel(private val repository: TaskRepository) : ViewModel() {
                     dueDate = dueDate
                 )
                 repository.insertTask(newTask)
+                if (!_connectedTeamId.value.isNullOrBlank()) {
+                    syncOnline { _, _ -> }
+                }
             }
         }
     }
@@ -104,18 +118,27 @@ class TaskViewModel(private val repository: TaskRepository) : ViewModel() {
         viewModelScope.launch {
             val updatedTask = task.copy(isCompleted = !task.isCompleted)
             repository.updateTask(updatedTask)
+            if (!_connectedTeamId.value.isNullOrBlank()) {
+                syncOnline { _, _ -> }
+            }
         }
     }
 
     fun deleteTask(task: Task) {
         viewModelScope.launch {
             repository.deleteTask(task)
+            if (!_connectedTeamId.value.isNullOrBlank()) {
+                syncOnline { _, _ -> }
+            }
         }
     }
 
     fun clearAllTasks() {
         viewModelScope.launch {
             repository.clearAllTasks()
+            if (!_connectedTeamId.value.isNullOrBlank()) {
+                syncOnline { _, _ -> }
+            }
         }
     }
 
@@ -131,6 +154,55 @@ class TaskViewModel(private val repository: TaskRepository) : ViewModel() {
                     repository.insertTask(taskToInsert)
                 }
             }
+        }
+    }
+
+    fun createTeamOnline(onResult: (String?, String?) -> Unit) {
+        viewModelScope.launch {
+            _isSyncing.value = true
+            val result = TaskSyncService.createOnlineTeam()
+            _isSyncing.value = false
+            result.fold(
+                onSuccess = { newTeamId ->
+                    _connectedTeamId.value = newTeamId
+                    // Trigger immediate initial upload/sync of existing local tasks to the cloud!
+                    syncOnline { success, error ->
+                        onResult(newTeamId, error)
+                    }
+                },
+                onFailure = { error ->
+                    onResult(null, error.message ?: "Unknown error")
+                }
+            )
+        }
+    }
+
+    fun syncOnline(onResult: (Boolean, String?) -> Unit) {
+        val teamId = _connectedTeamId.value
+        if (teamId.isNullOrBlank()) {
+            onResult(false, "No active connected team")
+            return
+        }
+        viewModelScope.launch {
+            _isSyncing.value = true
+            val result = TaskSyncService.syncTwoWay(teamId, tasks.value)
+            _isSyncing.value = false
+            result.fold(
+                onSuccess = { mergedList ->
+                    replaceAndSyncAllTasks(mergedList)
+                    onResult(true, null)
+                },
+                onFailure = { error ->
+                    onResult(false, error.message ?: "Unknown error")
+                }
+            )
+        }
+    }
+
+    private suspend fun replaceAndSyncAllTasks(syncedTasks: List<Task>) {
+        repository.clearAllTasks()
+        syncedTasks.forEach { task ->
+            repository.insertTask(task.copy(id = 0))
         }
     }
 
