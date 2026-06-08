@@ -143,6 +143,24 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showCollabDialog by remember { mutableStateOf(false) }
 
+    if (showAddDialog) {
+        TaskAddDialog(
+            isFarsi = isFarsi,
+            onDismiss = { showAddDialog = false },
+            onAdd = { title, description, category, priority, dueDate ->
+                viewModel.addTask(title, description, category, priority, dueDate)
+            }
+        )
+    }
+
+    if (showCollabDialog) {
+        TaskCollabDialog(
+            isFarsi = isFarsi,
+            viewModel = viewModel,
+            onDismiss = { showCollabDialog = false }
+        )
+    }
+
     // Dynamic layout direction mapping
     val layoutDirection = if (isFarsi) LayoutDirection.Rtl else LayoutDirection.Ltr
 
@@ -416,17 +434,17 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                         Tab(
                             selected = filterStatus == TaskViewModel.FilterStatus.ALL,
                             onClick = { viewModel.setFilterStatus(TaskViewModel.FilterStatus.ALL) },
-                            text = { Text(if (isFarsi) "???" else "All") }
+                            text = { Text(if (isFarsi) "همه" else "All") }
                         )
                         Tab(
                             selected = filterStatus == TaskViewModel.FilterStatus.PENDING,
                             onClick = { viewModel.setFilterStatus(TaskViewModel.FilterStatus.PENDING) },
-                            text = { Text(if (isFarsi) "?? ?????" else "Pending") }
+                            text = { Text(if (isFarsi) "در جریان" else "Pending") }
                         )
                         Tab(
                             selected = filterStatus == TaskViewModel.FilterStatus.COMPLETED,
                             onClick = { viewModel.setFilterStatus(TaskViewModel.FilterStatus.COMPLETED) },
-                            text = { Text(if (isFarsi) "????? ???" else "Completed") }
+                            text = { Text(if (isFarsi) "انجام شده" else "Completed") }
                         )
                     }
 
@@ -454,7 +472,7 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 Text(
-                                    text = if (isFarsi) "???" else "All",
+                                    text = if (isFarsi) "همه" else "All",
                                     color = textColor,
                                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                                 )
@@ -521,13 +539,13 @@ fun TaskAppScreen(viewModel: TaskViewModel) {
                                 }
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = if (isFarsi) "??? ???? ???? ???" else "No Tasks Found",
+                                    text = if (isFarsi) "هیچ تسکی پیدا نشد" else "No Tasks Found",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = if (isFarsi) "??? ????? ????? ???? ?? ??????? ?? ????? ????." else "Add a task or adjust filters to get started.",
+                                    text = if (isFarsi) "تسک جدیدی تعریف کنید یا فیلترها را تغییر دهید." else "Add a task or adjust filters to get started.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     textAlign = TextAlign.Center,
@@ -659,9 +677,9 @@ fun TaskItemCard(
                         else -> Color(0xFF10B981)
                     }
                     val priorityName = when (task.priority.lowercase()) {
-                        "high" -> if (isFarsi) "????" else "Urgent"
-                        "medium" -> if (isFarsi) "?????" else "Medium"
-                        else -> if (isFarsi) "??" else "Low"
+                        "high" -> if (isFarsi) "فوری" else "Urgent"
+                        "medium" -> if (isFarsi) "متوسط" else "Medium"
+                        else -> if (isFarsi) "کم" else "Low"
                     }
                     Box(
                         modifier = Modifier
@@ -737,7 +755,7 @@ fun TaskItemCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = if (isFarsi) "??? ???" else "Delete Task",
+                    contentDescription = if (isFarsi) "حذف تسک" else "Delete Task",
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp)
                 )
@@ -1407,6 +1425,240 @@ fun TaskCollabDialog(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(if (isFarsi) "خروج و بازگشت" else "Close Sync Window")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskAddDialog(
+    isFarsi: Boolean,
+    onDismiss: () -> Unit,
+    onAdd: (title: String, description: String, category: String, priority: String, dueDate: Long?) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("General") }
+    var selectedPriority by remember { mutableStateOf("Medium") }
+    var dueDate by remember { mutableStateOf<Long?>(null) }
+    
+    val context = LocalContext.current
+    val isTitleValid = title.isNotBlank()
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = true)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = if (isFarsi) "افزودن کار جدید" else "Add New Task",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(if (isFarsi) "عنوان کار" else "Task Title") },
+                    placeholder = { Text(if (isFarsi) "مثال: خرید نان..." else "e.g., Buy groceries...") },
+                    modifier = Modifier.fillMaxWidth().testTag("add_task_title_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text(if (isFarsi) "توضیحات (اختیاری)" else "Description (Optional)") },
+                    placeholder = { Text(if (isFarsi) "جزئیات بیشتر..." else "More details...") },
+                    modifier = Modifier.fillMaxWidth().testTag("add_task_desc_input"),
+                    maxLines = 3,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Text(
+                    text = if (isFarsi) "دسته‌بندی" else "Category",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(CategoriesList) { cat ->
+                        val isSelected = selectedCategory == cat.id
+                        val containerColor = if (isSelected) cat.color else cat.color.copy(alpha = 0.12f)
+                        val textColor = if (isSelected) Color.White else cat.color
+                        
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(containerColor)
+                                .border(1.dp, if (isSelected) Color.Transparent else cat.color.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .clickable { selectedCategory = cat.id }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = cat.icon,
+                                    contentDescription = null,
+                                    tint = textColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (isFarsi) cat.nameFa else cat.nameEn,
+                                    color = textColor,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = if (isFarsi) "اولویت" else "Priority",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val priorities = listOf("High", "Medium", "Low")
+                    val priorityNamesFa = mapOf("High" to "فوری", "Medium" to "متوسط", "Low" to "کم")
+                    val priorityColors = mapOf("High" to Color(0xFFEF4444), "Medium" to Color(0xFFF59E0B), "Low" to Color(0xFF10B981))
+                    
+                    priorities.forEach { priority ->
+                        val isSelected = selectedPriority == priority
+                        val prColor = priorityColors[priority] ?: Color.Gray
+                        val containerColor = if (isSelected) prColor else prColor.copy(alpha = 0.08f)
+                        val textColor = if (isSelected) Color.White else prColor
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(containerColor)
+                                .border(1.dp, if (isSelected) Color.Transparent else prColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .clickable { selectedPriority = priority }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isFarsi) priorityNamesFa[priority] ?: "" else priority,
+                                color = textColor,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = if (isFarsi) "تاریخ سررسید" else "Due Date",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = dueDate?.let {
+                                val sdf = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US)
+                                sdf.format(java.util.Date(it))
+                            } ?: (if (isFarsi) "تنظیم نشده" else "No date set"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (dueDate != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (dueDate != null) {
+                            TextButton(onClick = { dueDate = null }) {
+                                Text(
+                                    text = if (isFarsi) "حذف تاریخ" else "Clear",
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        
+                        Button(
+                            onClick = {
+                                val cal = java.util.Calendar.getInstance()
+                                dueDate?.let { cal.timeInMillis = it }
+                                val datePickerDialog = android.app.DatePickerDialog(
+                                    context,
+                                    { _, selectedYear, selectedMonth, selectedDay ->
+                                        val newCal = java.util.Calendar.getInstance()
+                                        newCal.set(selectedYear, selectedMonth, selectedDay)
+                                        dueDate = newCal.timeInMillis
+                                    },
+                                    cal.get(java.util.Calendar.YEAR),
+                                    cal.get(java.util.Calendar.MONTH),
+                                    cal.get(java.util.Calendar.DAY_OF_MONTH)
+                                )
+                                datePickerDialog.show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isFarsi) "انتخاب" else "Select")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("add_task_cancel_button")
+                    ) {
+                        Text(if (isFarsi) "انصراف" else "Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        enabled = isTitleValid,
+                        onClick = {
+                            if (isTitleValid) {
+                                onAdd(title, description, selectedCategory, selectedPriority, dueDate)
+                                onDismiss()
+                            }
+                        },
+                        modifier = Modifier.testTag("add_task_submit_button"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(if (isFarsi) "افزودن" else "Add Task")
+                    }
                 }
             }
         }
