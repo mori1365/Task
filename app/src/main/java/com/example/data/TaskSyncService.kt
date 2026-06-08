@@ -15,7 +15,7 @@ object TaskSyncService {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private const val BASE_URL = "https://kvdb.io"
+    private const val BASE_URL = "https://keyvalue.xyz"
 
     /**
      * Creates a new unique bucket on KVdb and returns the bucket ID.
@@ -23,7 +23,7 @@ object TaskSyncService {
     suspend fun createOnlineTeam(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url(BASE_URL)
+                .url("$BASE_URL/new")
                 .post("".toRequestBody("text/plain".toMediaType()))
                 .build()
 
@@ -31,7 +31,12 @@ object TaskSyncService {
                 if (response.isSuccessful) {
                     val body = response.body?.string()?.trim()
                     if (!body.isNullOrEmpty()) {
-                        Result.success(body)
+                        val token = body.substringAfterLast("/")
+                        if (token.isNotEmpty()) {
+                            Result.success(token)
+                        } else {
+                            Result.failure(Exception("Could not extract token from response: $body"))
+                        }
                     } else {
                         Result.failure(Exception("Empty response from server"))
                     }
@@ -55,7 +60,7 @@ object TaskSyncService {
     suspend fun syncTwoWay(bucketId: String, localTasks: List<Task>): Result<List<Task>> = withContext(Dispatchers.IO) {
         try {
             val fetchRequest = Request.Builder()
-                .url("$BASE_URL/buckets/$bucketId/keys/tasks")
+                .url("$BASE_URL/v1/$bucketId")
                 .get()
                 .build()
 
@@ -109,8 +114,8 @@ object TaskSyncService {
             // Push final merged list back to cloud for other teammates to pull
             val jsonToUpload = TaskShareHelper.serializeToJson(finalMergedList)
             val uploadRequest = Request.Builder()
-                .url("$BASE_URL/buckets/$bucketId/keys/tasks")
-                .put(jsonToUpload.toRequestBody("application/json".toMediaType()))
+                .url("$BASE_URL/v1/$bucketId")
+                .post(jsonToUpload.toRequestBody("text/plain".toMediaType()))
                 .build()
 
             client.newCall(uploadRequest).execute().use { response ->
